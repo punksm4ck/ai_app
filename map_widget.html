@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Data Center Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #0a0e1a; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+  #map { width: 100%; height: 100%; }
+
+  /* ── Legend ──────────────────────────────────────────────── */
+  .legend {
+    background: rgba(10,14,26,0.92);
+    border: 1px solid rgba(100,200,255,0.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #e0f0ff;
+    font-size: 11px;
+    line-height: 1.8;
+    backdrop-filter: blur(8px);
+  }
+  .legend h4 { color: #64c8ff; font-size: 12px; margin-bottom: 8px; letter-spacing: 2px; text-transform: uppercase; }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid; flex-shrink: 0; }
+
+  /* ── Tooltip / Popup ────────────────────────────────────── */
+  .leaflet-popup-content-wrapper {
+    background: rgba(10,14,26,0.97) !important;
+    border: 1px solid rgba(100,200,255,0.35) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 40px rgba(0,120,255,0.25) !important;
+    color: #cce6ff !important;
+  }
+  .leaflet-popup-tip { background: rgba(10,14,26,0.97) !important; }
+  .leaflet-popup-content { margin: 0 !important; }
+  .popup-card { padding: 14px 18px; min-width: 260px; }
+  .popup-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .popup-name { font-size: 14px; font-weight: 700; color: #fff; line-height: 1.3; }
+  .popup-badge { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 12px; white-space: nowrap; font-weight: 600; }
+  .badge-active   { background: rgba(50,255,150,0.15); color: #32ff96; border: 1px solid #32ff96; }
+  .badge-construction { background: rgba(255,180,0,0.15); color: #ffb400; border: 1px solid #ffb400; }
+  .badge-planned  { background: rgba(100,180,255,0.15); color: #64b4ff; border: 1px solid #64b4ff; }
+  .badge-announced { background: rgba(200,100,255,0.15); color: #c864ff; border: 1px solid #c864ff; }
+  .popup-operator { font-size: 11px; color: #64c8ff; margin-bottom: 10px; letter-spacing: 0.5px; }
+  .popup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .popup-stat label { font-size: 9px; color: #7090b0; text-transform: uppercase; letter-spacing: 1px; }
+  .popup-stat span { font-size: 13px; color: #e0f0ff; font-weight: 600; }
+  .popup-desc { font-size: 11px; color: #8099b3; margin-top: 10px; line-height: 1.5; border-top: 1px solid rgba(100,200,255,0.1); padding-top: 8px; }
+  .popup-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .popup-tag { font-size: 9px; padding: 2px 7px; border-radius: 10px; background: rgba(100,200,255,0.08); border: 1px solid rgba(100,200,255,0.15); color: #64c8ff; }
+
+  /* ── Status bar ──────────────────────────────────────────── */
+  #statusbar {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 28px; z-index: 9000;
+    background: rgba(10,14,26,0.9);
+    border-top: 1px solid rgba(100,200,255,0.15);
+    display: flex; align-items: center; padding: 0 14px;
+    font-size: 11px; color: #4a7090; gap: 20px;
+  }
+  #statusbar .s-item { display: flex; align-items: center; gap: 6px; }
+  #statusbar .s-dot { width: 6px; height: 6px; border-radius: 50%; }
+  #coord { margin-left: auto; font-size: 10px; color: #3a5060; }
+
+  /* ── Leaflet dark overrides ──────────────────────────────── */
+  .leaflet-control-zoom { border: 1px solid rgba(100,200,255,0.2) !important; border-radius: 6px !important; }
+  .leaflet-control-zoom a {
+    background: rgba(10,14,26,0.9) !important;
+    color: #64c8ff !important;
+    border-bottom: 1px solid rgba(100,200,255,0.15) !important;
+  }
+  .leaflet-control-zoom a:hover { background: rgba(30,60,90,0.9) !important; }
+  .leaflet-control-attribution { background: rgba(10,14,26,0.7) !important; color: #304050 !important; font-size: 9px !important; }
+  .leaflet-control-attribution a { color: #406070 !important; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="statusbar">
+  <div class="s-item"><div class="s-dot" style="background:#32ff96"></div><span id="s-active">—</span> Active</div>
+  <div class="s-item"><div class="s-dot" style="background:#ffb400"></div><span id="s-construction">—</span> Under Construction</div>
+  <div class="s-item"><div class="s-dot" style="background:#64b4ff"></div><span id="s-planned">—</span> Planned</div>
+  <div class="s-item"><div class="s-dot" style="background:#c864ff"></div><span id="s-announced">—</span> Announced</div>
+  <div id="coord" id="coord">Hover to show coordinates</div>
+</div>
+
+<script>
+// ── Map initialisation ───────────────────────────────────────────────────────
+var map = L.map('map', {
+  center: [38.5, -96.0],
+  zoom: 4,
+  zoomControl: true,
+  attributionControl: true,
+});
+
+// Dark tile layer (CartoDB Dark Matter)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 19,
+}).addTo(map);
+
+// Coordinate tracker
+map.on('mousemove', function(e) {
+  document.getElementById('coord').textContent =
+    e.latlng.lat.toFixed(4) + '° N, ' + Math.abs(e.latlng.lng).toFixed(4) + '° W';
+});
+
+// ── Marker creation ──────────────────────────────────────────────────────────
+var STATUS_COLORS = {
+  active:       { fill: '#32ff96', border: '#00cc60', glow: 'rgba(50,255,150,0.4)' },
+  construction: { fill: '#ffb400', border: '#cc8800', glow: 'rgba(255,180,0,0.4)'  },
+  planned:      { fill: '#64b4ff', border: '#2070cc', glow: 'rgba(100,180,255,0.4)'},
+  announced:    { fill: '#c864ff', border: '#9020cc', glow: 'rgba(200,100,255,0.4)'},
+};
+
+function sizeForMW(mw) {
+  if (!mw) return 9;
+  if (mw >= 600) return 18;
+  if (mw >= 300) return 14;
+  if (mw >= 100) return 11;
+  return 9;
+}
+
+function makeIcon(status, mw) {
+  var c = STATUS_COLORS[status] || STATUS_COLORS.announced;
+  var r = sizeForMW(mw);
+  var svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${r*2+6}" height="${r*2+6}">
+    <circle cx="${r+3}" cy="${r+3}" r="${r+2}" fill="${c.glow}" opacity="0.5"/>
+    <circle cx="${r+3}" cy="${r+3}" r="${r}" fill="${c.fill}" stroke="${c.border}" stroke-width="1.5" opacity="0.95"/>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    iconSize: [r*2+6, r*2+6],
+    iconAnchor: [r+3, r+3],
+    className: '',
+  });
+}
+
+function badgeClass(status) {
+  var m = { active:'badge-active', construction:'badge-construction', planned:'badge-planned', announced:'badge-announced' };
+  return m[status] || 'badge-announced';
+}
+
+function fmtMW(mw)  { return mw ? mw.toLocaleString() + ' MW' : 'N/A'; }
+function fmtInv(inv) { return inv ? '$' + inv + 'B' : 'N/A'; }
+function fmtYear(y) { return y ? String(y) : 'N/A'; }
+
+var allMarkers = [];
+var markersByStatus = { active:[], construction:[], planned:[], announced:[] };
+var layerGroups = {};
+Object.keys(markersByStatus).forEach(function(s) {
+  layerGroups[s] = L.layerGroup().addTo(map);
+});
+
+function buildPopup(dc) {
+  var tags = (dc.tags||[]).map(function(t){ return '<span class="popup-tag">' + t + '</span>'; }).join('');
+  return `<div class="popup-card">
+    <div class="popup-header">
+      <div class="popup-name">${dc.name}</div>
+      <span class="popup-badge ${badgeClass(dc.status)}">${dc.status}</span>
+    </div>
+    <div class="popup-operator">⚡ ${dc.operator} &mdash; ${dc.city}, ${dc.state}</div>
+    <div class="popup-grid">
+      <div class="popup-stat"><label>Capacity</label><br><span>${fmtMW(dc.capacity_mw)}</span></div>
+      <div class="popup-stat"><label>Investment</label><br><span>${fmtInv(dc.investment_usd_bn)}</span></div>
+      <div class="popup-stat"><label>Announced</label><br><span>${fmtYear(dc.announced_year)}</span></div>
+      <div class="popup-stat"><label>Operational</label><br><span>${fmtYear(dc.operational_year)}</span></div>
+    </div>
+    <div class="popup-desc">${dc.description}</div>
+    ${tags ? '<div class="popup-tags">' + tags + '</div>' : ''}
+  </div>`;
+}
+
+function loadDatacenters(data) {
+  // Clear existing
+  Object.values(layerGroups).forEach(function(lg) { lg.clearLayers(); });
+  allMarkers = [];
+  Object.keys(markersByStatus).forEach(function(s){ markersByStatus[s] = []; });
+
+  var counts = { active:0, construction:0, planned:0, announced:0 };
+
+  data.forEach(function(dc) {
+    var marker = L.marker([dc.lat, dc.lng], { icon: makeIcon(dc.status, dc.capacity_mw) });
+    marker.bindPopup(buildPopup(dc), { maxWidth: 320, minWidth: 280 });
+    marker.dc = dc;
+    var grp = layerGroups[dc.status] || layerGroups.announced;
+    grp.addLayer(marker);
+    allMarkers.push(marker);
+    if (markersByStatus[dc.status]) markersByStatus[dc.status].push(marker);
+    counts[dc.status] = (counts[dc.status]||0) + 1;
+  });
+
+  // Update status bar
+  document.getElementById('s-active').textContent = counts.active || 0;
+  document.getElementById('s-construction').textContent = counts.construction || 0;
+  document.getElementById('s-planned').textContent = counts.planned || 0;
+  document.getElementById('s-announced').textContent = counts.announced || 0;
+}
+
+function filterByStatus(statuses) {
+  Object.keys(layerGroups).forEach(function(s) {
+    if (statuses.length === 0 || statuses.indexOf(s) !== -1) {
+      if (!map.hasLayer(layerGroups[s])) map.addLayer(layerGroups[s]);
+    } else {
+      if (map.hasLayer(layerGroups[s])) map.removeLayer(layerGroups[s]);
+    }
+  });
+}
+
+function filterByOperator(operator) {
+  allMarkers.forEach(function(m) {
+    var grp = layerGroups[m.dc.status];
+    if (!operator || m.dc.operator.toLowerCase().includes(operator.toLowerCase())) {
+      if (!grp.hasLayer(m)) grp.addLayer(m);
+    } else {
+      grp.removeLayer(m);
+    }
+  });
+}
+
+function highlightMarker(dcId) {
+  allMarkers.forEach(function(m) {
+    if (m.dc.id === dcId) {
+      map.flyTo([m.dc.lat, m.dc.lng], 8, { animate: true, duration: 1.2 });
+      setTimeout(function(){ m.openPopup(); }, 1300);
+    }
+  });
+}
+
+function zoomToState(state) {
+  var pts = allMarkers.filter(function(m){ return m.dc.state === state; });
+  if (pts.length === 0) return;
+  var group = L.featureGroup(pts);
+  map.flyToBounds(group.getBounds().pad(0.3), { animate: true, duration: 1.2 });
+}
+
+// ── Legend ───────────────────────────────────────────────────────────────────
+var legend = L.control({ position: 'bottomleft' });
+legend.onAdd = function() {
+  var d = L.DomUtil.create('div', 'legend');
+  d.innerHTML = `<h4>Status</h4>
+    <div class="legend-item"><div class="legend-dot" style="background:#32ff96;border-color:#00cc60"></div> Active</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ffb400;border-color:#cc8800"></div> Construction</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#64b4ff;border-color:#2070cc"></div> Planned</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#c864ff;border-color:#9020cc"></div> Announced</div>
+    <br>
+    <h4>Size = Capacity (MW)</h4>`;
+  return d;
+};
+legend.addTo(map);
+
+// ── Qt bridge: Python calls window.loadDatacenters(json_str) ─────────────────
+window.loadDatacenters = loadDatacenters;
+window.filterByStatus  = filterByStatus;
+window.filterByOperator = filterByOperator;
+window.highlightMarker = highlightMarker;
+window.zoomToState     = zoomToState;
+</script>
+</body>
+</html>
